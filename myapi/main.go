@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"net/http"
 	"strconv"
 	"time"
@@ -8,11 +9,12 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v4"
-
-	_ "myapi/docs" // Replace with your actual module path
+	_ "github.com/lib/pq"
 
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
+
+	_ "myapi/docs" // Replace with your module name
 )
 
 // @title Product and Order API with JWT Auth
@@ -25,6 +27,7 @@ import (
 // @name Authorization
 
 var jwtKey = []byte("supersecretkey")
+var db *sql.DB
 
 type Credentials struct {
 	Username string `json:"username" example:"admin"`
@@ -51,15 +54,16 @@ type Order struct {
 	OrderDate time.Time `json:"order_date" example:"2024-01-01T15:04:05Z"`
 }
 
-var (
-	products = []Product{
-		{ID: 1, Name: "Laptop", Description: "Powerful laptop", Price: 999.99, InStock: true},
-		{ID: 2, Name: "Phone", Description: "Android smartphone", Price: 499.99, InStock: true},
-	}
-	orders = []Order{}
-)
-
 func main() {
+	var err error
+	db, err = sql.Open("postgres", "host=localhost port=5432 user=aravi password=blueberry dbname=yourdb sslmode=disable")
+	if err != nil {
+		panic("Failed to connect to DB: " + err.Error())
+	}
+	if err = db.Ping(); err != nil {
+		panic("DB unreachable: " + err.Error())
+	}
+
 	r := gin.Default()
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"http://localhost:3000"},
@@ -70,11 +74,9 @@ func main() {
 		MaxAge:           12 * time.Hour,
 	}))
 
-	// Public routes
 	r.POST("/login", LoginHandler)
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
-	// Protected routes
 	auth := r.Group("/")
 	auth.Use(JWTMiddleware())
 	{
@@ -90,16 +92,8 @@ func main() {
 	r.Run(":8080")
 }
 
-// ================== AUTH =====================
+// ==================== AUTH ========================
 
-// @Summary Login to get token
-// @Tags auth
-// @Accept json
-// @Produce json
-// @Param credentials body Credentials true "User credentials"
-// @Success 200 {object} map[string]string
-// @Failure 401 {object} map[string]string
-// @Router /login [post]
 func LoginHandler(c *gin.Context) {
 	var creds Credentials
 	if err := c.ShouldBindJSON(&creds); err != nil {
@@ -147,149 +141,123 @@ func JWTMiddleware() gin.HandlerFunc {
 	}
 }
 
-// ================== PRODUCTS =====================
+// ==================== PRODUCT ========================
 
-// @Summary Get all products
-// @Tags product
-// @Security BearerAuth
-// @Produce json
-// @Success 200 {array} Product
-// @Router /product [get]
 func GetProductsHandler(c *gin.Context) {
+	rows, err := db.Query("SELECT id, name, description, price, in_stock FROM products")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch products"})
+		return
+	}
+	defer rows.Close()
+
+	var products []Product
+	for rows.Next() {
+		var p Product
+		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.Price, &p.InStock); err != nil {
+			continue
+		}
+		products = append(products, p)
+	}
 	c.JSON(http.StatusOK, products)
 }
 
-// @Summary Add a new product
-// @Tags product
-// @Security BearerAuth
-// @Accept json
-// @Produce json
-// @Param product body Product true "New product"
-// @Success 201 {object} Product
-// @Failure 400 {object} map[string]string
-// @Router /product [post]
 func AddProductHandler(c *gin.Context) {
-	var newProduct Product
-	if err := c.ShouldBindJSON(&newProduct); err != nil {
+	var p Product
+	if err := c.ShouldBindJSON(&p); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
 		return
 	}
-	newProduct.ID = getNextProductID()
-	products = append(products, newProduct)
-	c.JSON(http.StatusCreated, newProduct)
+	err := db.QueryRow(
+		"INSERT INTO products (name, description, price, in_stock) VALUES ($1, $2, $3, $4) RETURNING id",
+		p.Name, p.Description, p.Price, p.InStock,
+	).Scan(&p.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Insert failed"})
+		return
+	}
+	c.JSON(http.StatusCreated, p)
 }
 
-// @Summary Update a product by ID
-// @Tags product
-// @Security BearerAuth
-// @Accept json
-// @Produce json
-// @Param id path int true "Product ID"
-// @Param product body Product true "Updated product"
-// @Success 200 {object} Product
-// @Failure 400 {object} map[string]string
-// @Failure 404 {object} map[string]string
-// @Router /product/{id} [put]
 func UpdateProductHandler(c *gin.Context) {
-	idStr := c.Param("id")
-	id, err := strconv.Atoi(idStr)
+	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
 		return
 	}
-	var updated Product
-	if err := c.ShouldBindJSON(&updated); err != nil {
+	var p Product
+	if err := c.ShouldBindJSON(&p); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
 		return
 	}
-	for i := range products {
-		if products[i].ID == id {
-			updated.ID = id
-			products[i] = updated
-			c.JSON(http.StatusOK, updated)
-			return
-		}
+	p.ID = id
+	_, err = db.Exec(
+		"UPDATE products SET name=$1, description=$2, price=$3, in_stock=$4 WHERE id=$5",
+		p.Name, p.Description, p.Price, p.InStock, p.ID,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Update failed"})
+		return
 	}
-	c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+	c.JSON(http.StatusOK, p)
 }
 
-// @Summary Delete a product by ID
-// @Tags product
-// @Security BearerAuth
-// @Produce json
-// @Param id path int true "Product ID"
-// @Success 200 {object} map[string]string
-// @Failure 400 {object} map[string]string
-// @Failure 404 {object} map[string]string
-// @Router /product/{id} [delete]
 func DeleteProductHandler(c *gin.Context) {
-	idStr := c.Param("id")
-	id, err := strconv.Atoi(idStr)
+	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
 		return
 	}
-	for i, p := range products {
-		if p.ID == id {
-			products = append(products[:i], products[i+1:]...)
-			c.JSON(http.StatusOK, gin.H{"message": "Product deleted"})
-			return
-		}
+	res, err := db.Exec("DELETE FROM products WHERE id=$1", id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Delete failed"})
+		return
 	}
-	c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+	rowsAffected, _ := res.RowsAffected()
+	if rowsAffected == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Product deleted"})
 }
 
-func getNextProductID() int {
-	maxID := 0
-	for _, p := range products {
-		if p.ID > maxID {
-			maxID = p.ID
-		}
-	}
-	return maxID + 1
-}
+// ==================== ORDER ========================
 
-// ================== ORDERS =====================
-
-// @Summary Create a new order
-// @Tags order
-// @Security BearerAuth
-// @Accept json
-// @Produce json
-// @Param order body Order true "Order details"
-// @Success 201 {object} Order
-// @Failure 400 {object} map[string]string
-// @Router /order [post]
 func CreateOrderHandler(c *gin.Context) {
-	var order Order
-	if err := c.ShouldBindJSON(&order); err != nil {
+	var o Order
+	if err := c.ShouldBindJSON(&o); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
 		return
 	}
-	order.OrderID = getNextOrderID()
-	if order.OrderDate.IsZero() {
-		order.OrderDate = time.Now()
+	if o.OrderDate.IsZero() {
+		o.OrderDate = time.Now()
 	}
-	orders = append(orders, order)
-	c.JSON(http.StatusCreated, order)
+	err := db.QueryRow(
+		"INSERT INTO orders (product_id, quantity, order_date) VALUES ($1, $2, $3) RETURNING order_id",
+		o.ProductID, o.Quantity, o.OrderDate,
+	).Scan(&o.OrderID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Order creation failed"})
+		return
+	}
+	c.JSON(http.StatusCreated, o)
 }
 
-// @Summary Get all orders
-// @Tags order
-// @Security BearerAuth
-// @Produce json
-// @Success 200 {array} Order
-// @Router /order [get]
 func GetOrdersHandler(c *gin.Context) {
-	c.JSON(http.StatusOK, orders)
-}
-
-func getNextOrderID() int {
-	maxID := 0
-	for _, o := range orders {
-		if o.OrderID > maxID {
-			maxID = o.OrderID
-		}
+	rows, err := db.Query("SELECT order_id, product_id, quantity, order_date FROM orders")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch orders"})
+		return
 	}
-	return maxID + 1
+	defer rows.Close()
+
+	var orders []Order
+	for rows.Next() {
+		var o Order
+		if err := rows.Scan(&o.OrderID, &o.ProductID, &o.Quantity, &o.OrderDate); err != nil {
+			continue
+		}
+		orders = append(orders, o)
+	}
+	c.JSON(http.StatusOK, orders)
 }

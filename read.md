@@ -57,5 +57,18 @@
 # https://www.enterprisedb.com/downloads/postgres-postgresql-downloads
 
 
+# once postgress sql is done just login to postgress sql and execute the below cmd to create the table
+CREATE TABLE products (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    description TEXT,
+    price NUMERIC(10,2) NOT NULL,
+    in_stock BOOLEAN DEFAULT TRUE
+);
 
- 
+CREATE TABLE orders (
+    order_id SERIAL PRIMARY KEY,
+    product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
+    quantity INTEGER NOT NULL,
+    order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
