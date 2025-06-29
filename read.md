@@ -22,6 +22,7 @@
 #   Expected output:
 #   go version go1.24.4 windows/amd64
 
+
 #   Node.js Version:
 #   cmd
 #   node --version
@@ -41,6 +42,7 @@
 #   Run the following command:
 #   cmd 
 #   npm start
+#   open the url you can see the login page http://localhost:3000/
 
 
 #   API (Go App)
@@ -49,6 +51,8 @@
 #   Run the following command:
 #   cmd
 #   go run main.go
+#   open the url you can see the api documentation in http://localhost:8080/swagger/index.html
+
 
 
 
