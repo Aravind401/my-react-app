@@ -1,5 +1,5 @@
 mkdir myapi
-cd myapi
+Set-Location myapi
 go mod init myapi
 go get -u github.com/gin-gonic/gin
 go get -u github.com/swaggo/gin-swagger
