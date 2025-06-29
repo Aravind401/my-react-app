@@ -56,7 +56,7 @@ type Order struct {
 
 func main() {
 	var err error
-	db, err = sql.Open("postgres", "host=localhost port=5432 user=aravi password=blueberry dbname=yourdb sslmode=disable")
+	db, err = sql.Open("postgres", "host=localhost port=5432 user=aravi password=blueberry dbname=productdb sslmode=disable")
 	if err != nil {
 		panic("Failed to connect to DB: " + err.Error())
 	}
