@@ -53,6 +53,8 @@
 #   go run main.go
 #   open the url you can see the api documentation in http://localhost:8080/swagger/index.html
 
+# settiing up postgress sql server have to download windows installer from official site in below link, the         version we are using 17.5
+# https://www.enterprisedb.com/downloads/postgres-postgresql-downloads
 
 
 
