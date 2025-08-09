@@ -3,11 +3,21 @@ import api from '../api';
 
 export default function Products() {
   const [products, setProducts] = useState([]);
-  const [form, setForm] = useState({ name: '', description: '', price: '', in_stock: true });
+  const [form, setForm] = useState({
+    name: '',
+    description: '',
+    price: '',
+    in_stock: true
+  });
 
   const load = async () => {
-    const res = await api.get('/product');
-    setProducts(res.data);
+    try {
+      const res = await api.get('/product');
+      setProducts(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      console.error("Failed to load products:", err);
+      setProducts([]); // fallback to avoid crashing
+    }
   };
 
   const add = async () => {
@@ -15,18 +25,31 @@ export default function Products() {
       alert('Name and Price required');
       return;
     }
-    await api.post('/product', {
+
+    const payload = {
       ...form,
       price: parseFloat(form.price),
-      in_stock: form.in_stock === 'true'
-    });
-    setForm({ name: '', description: '', price: '', in_stock: true });
-    load();
+      in_stock: form.in_stock === true || form.in_stock === 'true'
+    };
+
+    try {
+      await api.post('/product', payload);
+      setForm({ name: '', description: '', price: '', in_stock: true });
+      load();
+    } catch (err) {
+      console.error("Failed to add product:", err);
+      alert("Failed to add product");
+    }
   };
 
   const del = async (id) => {
-    await api.delete(`/product/${id}`);
-    load();
+    try {
+      await api.delete(`/product/${id}`);
+      load();
+    } catch (err) {
+      console.error("Failed to delete product:", err);
+      alert("Failed to delete product");
+    }
   };
 
   useEffect(() => {
@@ -53,8 +76,10 @@ export default function Products() {
         onChange={(e) => setForm({ ...form, price: e.target.value })}
       />
       <select
-        value={form.in_stock}
-        onChange={(e) => setForm({ ...form, in_stock: e.target.value })}
+        value={form.in_stock.toString()}
+        onChange={(e) =>
+          setForm({ ...form, in_stock: e.target.value === 'true' })
+        }
       >
         <option value="true">In Stock</option>
         <option value="false">Out of Stock</option>
@@ -62,12 +87,17 @@ export default function Products() {
       <button onClick={add}>Add Product</button>
 
       <ul>
-        {products.map((p) => (
-          <li key={p.id}>
-            <strong>{p.name}</strong> – ₹{p.price} – {p.in_stock ? 'In Stock' : 'Out of Stock'}
-            <button onClick={() => del(p.id)}>Delete</button>
-          </li>
-        ))}
+        {products && products.length > 0 ? (
+          products.map((p) => (
+            <li key={p.id}>
+              <strong>{p.name}</strong> – ₹{p.price} –{' '}
+              {p.in_stock ? 'In Stock' : 'Out of Stock'}
+              <button onClick={() => del(p.id)}>Delete</button>
+            </li>
+          ))
+        ) : (
+          <li>No products available.</li>
+        )}
       </ul>
     </div>
   );

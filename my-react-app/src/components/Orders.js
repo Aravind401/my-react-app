@@ -10,8 +10,14 @@ export default function Orders() {
   });
 
   const load = async () => {
-    const res = await api.get('/order');
-    setOrders(res.data);
+    try {
+      const res = await api.get('/order');
+      // Ensure it's always an array
+      setOrders(Array.isArray(res.data) ? res.data : []);
+    } catch (error) {
+      console.error("Failed to fetch orders:", error);
+      setOrders([]); // fallback to empty list on failure
+    }
   };
 
   const create = async () => {
@@ -33,6 +39,7 @@ export default function Orders() {
       setForm({ product_id: '', quantity: '', order_date: '' });
       load();
     } catch (err) {
+      console.error("Order creation failed:", err);
       alert("Failed to create order");
     }
   };
@@ -62,11 +69,16 @@ export default function Orders() {
       <button onClick={create}>Place Order</button>
 
       <ul>
-        {orders.map((o) => (
-          <li key={o.order_id}>
-            Order #{o.order_id} — Product: {o.product_id} — Qty: {o.quantity} — Date: {new Date(o.order_date).toLocaleString()}
-          </li>
-        ))}
+        {orders && orders.length > 0 ? (
+          orders.map((o) => (
+            <li key={o.order_id}>
+              Order #{o.order_id} — Product: {o.product_id} — Qty: {o.quantity} — Date:{" "}
+              {o.order_date ? new Date(o.order_date).toLocaleString() : 'N/A'}
+            </li>
+          ))
+        ) : (
+          <li>No orders found.</li>
+        )}
       </ul>
     </div>
   );
